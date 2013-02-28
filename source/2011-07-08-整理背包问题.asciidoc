@@ -1,0 +1,168 @@
+:mathjax:
+:tag1: math
+
+整理背包问题
+============
+
+== 问题 ==
+=============
+现有编号为1 \~ n的n件物品, 随机放在编号为1 \~ n的n个背包中, 现在需要通过交换背包中的物品, 最终使物品 i 放在对应的背包 i 中, 需要交换的次数就是这个排列的逆序数. 现在考虑这样一个问题, 每轮交换, 可以选取任意对背包, 交换里面的物品, 但是同一个背包不能被选择两次, 那么需要几轮交换才能整理好所有物品?
+=============
+
+比如有3个物品, 排列{2,3,1}, 要整理好, 至少需要两次交换{2,3,1} -> {3,2,1} -> {1,2,3}
+
+再比如有4个物品, 排列{2,3,4,1} 要整理好, 也至少需要两次交换
+ {2,3,4,1} -> {3,2,1,4} -> {1,2,3,4}
+第一次交换(2<=>3)(4<=>1), 第二轮交换(1<=>3)
+
+下面我们证明, 最多只需要两轮交换就能整理好所有背包.
+
+== 使用 link:http://en.wikipedia.org/wiki/Cycle_notation[Cyclic notation] 证明 ==
+
+原命题可以表示为:
+
+若:
+
+latexmath:[$ P = \prod_{i} (a_{i1}, a_{i2}, \dots, a_{is_{i}}) \hspace{40pt} (\sum_{i} s_{i} = n, a_{ij} \in \{ 1 \dots n \}, a_{ij} \neq a_{kl}) $]
+
+则, P可以表示为:
+
+latexmath:[$ P = \prod_{i} (x_{i1}, x_{i2}) \prod_{i} (y_{i1}, y_{i2}) \hspace{25pt} (x_{ij}, y_{ij} \in \{ 1 \dots n \}, x_{ij} \neq x_{kl}, y_{ij} \neq y_{kl}) $]
+
+首先有:
+
+latexmath:[$ (1, 2, \dots, s_{i}) = (1, s_{i-1})(2, s_{i-2})\dots(\lfloor s_{i}/2 \rfloor, \lceil s_{i}/2 \rceil) \hspace{10pt} (1, s_{i})(2, s_{i}-1)\dots(\lfloor (s_{i}+1)/2 \rfloor, \lceil (s_{i}+1)/2 \rceil) \\ $]
+
+所以可以记:
+
+latexmath:[$
+a_{i} = (a_{i1}, a_{i2}, \dots, a_{is_{i}}) \hspace{40pt} (A_{i} = \{ a_{ip} | p \in \{1 \dots s_{i}\} \}, A_{i} \cap A_{j} = \varnothing) \\
+x_{i} =(a_{i1}, a_{is_{i-1}})(a_{i2}, a_{is_{i-2}})\dots(a_{i\lfloor s_{i}/2 \rfloor}, a_{i\lceil s_{i}/2 \rceil}) \\
+y_{i} =(a_{i1}, a_{is_{i}})(a_{i2}, a_{is_{i-1}})\dots(a_{i\lfloor (s_{i}+1)/2 \rfloor}, a_{i\lceil (s_{i}+1)/2 \rceil}) \\
+a_{i} = x_{i}y_{i}
+$]
+
+所以P可以表示为:
+
+latexmath:[$
+P \\
+= \prod_{i} a_{i} \\
+= \prod_{i} x_{i}y_{i} \\
+= \prod_{i} x_{i} \prod_{i} y_{i})
+$]
+
+最后一步是因为 latexmath:[$ A_{i} \cap A_{j} = \varnothing $] , 所以, 原命题得证.
+
+
+证明看起来很麻烦, 但是背后的原理非常简单, 所有的排列都可以表示为若干个环, 例如:
+
+pass:[<img style="width: 100%" src="http://upload.wikimedia.org/wikipedia/commons/c/cb/Symmetric_group_3%3B_Cayley_table%3B_positions.svg" />]
+
+然后证明每个环都能够通过两轮交换还原. 上面证明中的 latexmath:[$ x_{i}y_{i} $] 就是还原了环 latexmath:[$ a_{i} $] , 方法就是通过一轮交换, 变成倒序, 然后再通过一轮交换, 变成正序.
+
+latexmath:[$
+\begin{pmatrix}
+2 & 3 & 4 & \cdots & n-1 & n & 1 \\
+&  &  & \downarrow &  &  & \\
+n & n-1 & n-2 & \cdots & 3 & 2 & 1 \\
+&  &  & \downarrow &  &  & \\
+1 & 2 & 3 & \cdots & n-2 & n-1 & n
+\end{pmatrix}
+$]
+
+又因为每个环都是独立的, 所以第一步交换可以同时进行, 一轮就可以完成所有环的第一步, 第二轮完成所有环的第二部, 问题解决.
+
+
+== 使用 link:http://en.wikipedia.org/wiki/Permutation_matrix[排列矩阵] 证明 ==
+
+考虑题目的交换方式, 每轮能够交换任意对物品, 那么每轮交换的变换矩阵就是一个对称排列矩阵. 比如同时交换(1<=>2)(3<=>4)的变换矩阵就是
+
+latexmath:[$
+\begin{bmatrix}
+& 1 & & \\
+1 & & & \\
+& & & 1 \\
+& & 1 & \\
+\end{bmatrix}
+$]
+
+原命题就等价于:
+
+===============
+对于任意排列矩阵 $ P $, 存在对称排列矩阵 $ L $ , $ R $ , 使
+       $ P=LR $
+===============
+
+下面我们开始构造 $ L $ 与 $ R $ .
+
+首先分析P的特征根:
+
+===============
+$ P-λE=0 $
+===============
+
+P的特征多项式为:
+
+===============
+latexmath:[$ \prod_{i} (\lambda^{s_{i}} \pm 1)=0 $]
+===============
+
+latexmath:[$ s_{i} $] 与上个证明中相同, 为每个环的元素数, 这不是巧合.
+
+所以P有p组独立的特征根, 分别是 latexmath:[$ \{\lambda_{11}, \dots, \lambda_{1s_{1}}\}, \dots, \{\lambda_{p1}, \dots, \lambda_{ps_{p}}\} $] , 每组都分布在复平面的单位圆上. 考察P的 link:http://en.wikipedia.org/wiki/Eigendecomposition_of_a_matrix[特征分解] :
+
+===============
+latexmath:[$
+P = Q \Lambda Q^{-1} = (Q \Lambda Q^{T}) ((Q^{T})^{-1} Q^{-1}) = (Q \Lambda Q^{T}) (Q Q^{T})^{-1} \\
+Q = \begin{bmatrix}
+| & & | & & | & & | \\
+X_{11} & \cdots & X_{1s_{1}} & \cdots & X_{p} & \cdots & X_{ps_{p}} \\
+| & & | & & | & & |
+\end{bmatrix}
+\Lambda = \begin{bmatrix}
+\lambda_{11} & & 0 \\
+& \ddots & \\
+0 &  & \lambda_{ps_{p}}
+\end{bmatrix}
+$]
+===============
+
+latexmath:[$ X_{ij} $] 为特征值 latexmath:[$ \lambda_{ij} $] 对应的特征向量标准化.
+
+下面我们证明:
+
+===============
+latexmath:[$ L = Q \Lambda Q^{T} \\ R = (Q Q^{T})^{-1} $]
+===============
+
+都是对称排列矩阵.
+
+R的对称性:
+
+===============
+latexmath:[$ R^{T} = ((Q Q^{T})^{-1})^{T} = ((Q Q^{T})^{T})^{-1} = ((Q^{T})^{T} Q^{T})^{-1} = (Q Q^{T})^{-1} = R $]
+===============
+
+R是排列矩阵:
+
+===============
+
+===============
+
+L的对称性:
+
+===============
+latexmath:[$ L^{T} = (Q \Lambda Q^{T})^{T} = (Q^{T})^{T} \Lambda^{T} Q^{T} = Q \Lambda Q^{T} = L $]
+===============
+
+L是排列矩阵:
+
+===============
+latexmath:[$ L = PR^{-1} $]
+===============
+
+两个排列矩阵的积还是排列矩阵
+
+
+PS: 此问题来源于WOW整理背包的插件, 一次可以向服务器提交一系列移动物品的指令, 但是不能涉及到重复的物品栏, 那么至少需要提交几次移动指令才能把背包整理好, 答案是2次!! 结论: 现有的整理背包插件都是渣.
+

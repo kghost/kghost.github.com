@@ -1,0 +1,39 @@
+:tag1: functional programming
+
+用scheme实现lambda-calculus
+===========================
+
+http://en.wikipedia.org/wiki/Church_numeral[church number] 里面 http://en.wikipedia.org/wiki/Church_numeral#Computation_with_Church_numerals[pred] 实在让人看得头痛， 用scheme实现一下，立刻变得容易理解了（真的容易理解么？！)
+
+[source,scheme]
+---------------------------------------------------------------------
+(define pred
+  (lambda (n)
+    (lambda (f)
+      (lambda (x)
+        (((n (lambda (g)
+               (lambda (h)
+                 (h (g f)))))
+          (lambda (u) x))
+         (lambda (u) u))))))
+
+(define (church n)
+  (lambda (f)
+    (lambda (x)
+      (if (= n 0)
+        x
+        (((church (1- n)) f) (f x))))))
+
+(write `(lambda (f)
+             (lambda (x)
+                   ,(((pred (church 5)) (lambda (x) (list 'f x))) 'x))))
+---------------------------------------------------------------------
+
+在guile里面跑了一下，效果不错，结果是
+
+[source,scheme]
+---------------------------------------------------------------------
+(lambda (f) (lambda (x) (f (f (f (f x))))))
+---------------------------------------------------------------------
+
+正好是church number 4

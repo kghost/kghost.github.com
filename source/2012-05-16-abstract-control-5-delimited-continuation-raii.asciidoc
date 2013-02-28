@@ -1,0 +1,203 @@
+:tag1: functional programming
+
+高阶流程控制语句（五）: 用 delimited continuation 实现 RAII
+===========================================================
+
+== 什么是RAII？ ==
+
+link:http://en.wikipedia.org/wiki/Resource_Acquisition_Is_Initialization[RAII] 就是在进入代码块的时候运行构造函数，在退出代码块的时候运行析构函数。C++ 原生支持 RAII：
+
+[source,cpp]
+---------------------------------------------------------------------
+class Resource {
+public:
+    Resource() { init...; }
+    ~Resource() { fini...; }
+};
+
+int main() {
+    Resource resource;
+}
+---------------------------------------------------------------------
+
+== RAII 的实现: using ==
+
+C#有个语法糖 using，支持对 IDispose 接口的 RAII：
+
+[source,csharp]
+---------------------------------------------------------------------
+using (MyResource myRes = new MyResource())
+{
+    myRes.DoSomething();
+}
+---------------------------------------------------------------------
+
+展开成实际代码就是：
+
+[source,csharp]
+---------------------------------------------------------------------
+MyResource myRes= new MyResource();
+try
+{
+    myRes.DoSomething();
+}
+finally
+{
+    if (myRes!= null) ((IDisposable)myRes).Dispose();
+}
+---------------------------------------------------------------------
+
+Scala 可以自己实现 using 函数：
+
+[source,scala]
+---------------------------------------------------------------------
+def using[T <: { def dispose: Unit }, R](resource: => T)(block: (T) => R) = {
+  var res = resource
+  try {
+    block(res)
+  } finally {
+    if (res != null) res.dispose
+  }
+}
+---------------------------------------------------------------------
+
+使用起来也跟 C# 的方法差不多：
+
+[source,scala]
+---------------------------------------------------------------------
+class Res {
+  println("init")
+  def dispose = { println("fini") }
+  def work = { println("work") }
+}
+
+using(new Res) { _.work }
+---------------------------------------------------------------------
+
+这个实现有个麻烦的地方，如果多层 using 套用的话，代码会乱成一坨：
+
+[source,scala]
+---------------------------------------------------------------------
+using(new Res) { res1 =>
+  using(new Res) { res2 =>
+    using(new Res) { res3 =>
+      using(new Res) { res4 =>
+        doSomething
+      }
+    }
+  }
+}
+---------------------------------------------------------------------
+
+== RAII 的实现: reset/shift ==
+
+现在我们用 reset/shift 实现 RAII
+
+[source,scala]
+---------------------------------------------------------------------
+import scala.util.continuations._
+
+def managed[T <: { def dispose: Unit }](resource: => T): T @suspendable =
+  shift { k =>
+    val res = resource
+    try {
+      k(res)
+    } finally {
+      res.dispose
+    }
+  }
+---------------------------------------------------------------------
+
+与之前的 using 实现类似，但是 using 使用一个闭包 block 作为参数，这里没有使用闭包作为参数，而是使用了 shift 捕获了后续的代码块，赋给 shift 的参数 k，我们先调用 k 然后再调用 dispose，可以做到析构函数类似的效果。这样 managed 函数在使用的时候也比 using 方便很多，需要做的就是在用 reset 把变量的作用域包起来：
+
+[source,scala]
+---------------------------------------------------------------------
+class Res(name: String) {
+  println("init: " + name)
+  def dispose = { println("fini: " + name) }
+  def work = { println("work: " + name) }
+}
+
+reset {
+  val res = managed(new Res("X"))
+  res.work
+}
+---------------------------------------------------------------------
+
+---------------------------------------------------------------------
+init: X
+work: X
+fini: X
+---------------------------------------------------------------------
+
+这样使用多个资源也不会出现嵌套的问题了，而且会按照初始化相反的顺序进行析构：
+
+[source,scala]
+---------------------------------------------------------------------
+reset {
+  val res1 = managed(new Res("A"))
+  val res2 = managed(new Res("B"))
+  val res3 = managed(new Res("C"))
+  val res4 = managed(new Res("D"))
+  res1.work
+  res2.work
+  res3.work
+}
+---------------------------------------------------------------------
+
+---------------------------------------------------------------------
+init: A
+init: B
+init: C
+init: D
+work: A
+work: B
+work: C
+fini: D
+fini: C
+fini: B
+fini: A
+---------------------------------------------------------------------
+
+== 备注: Scala 中 continuation 的使用 ==
+
+从官网下载 Scala 解压后 bin 目录下有名称为 scala 的可执行文件，如果要使用 continuation 必须添加参数 -P:continuations:enable，下面是以运行本文中的例子：
+
+[source,scala]
+---------------------------------------------------------------------
+$ ./scala -P:continuations:enable
+Welcome to Scala version 2.9.2 (OpenJDK 64-Bit Server VM, Java 1.6.0_24).
+Type in expressions to have them evaluated.
+Type :help for more information.
+
+scala> import scala.util.continuations._
+import scala.util.continuations._
+
+scala> def managed[T <: { def dispose: Unit }](resource: => T): T @suspendable =
+     |   shift { k =>
+     |     val res = resource
+     |     try {
+     |       k(res)
+     |     } finally {
+     |       res.dispose
+     |     }
+     |   }
+managed: [T <: AnyRef{def dispose: Unit}](resource: => T)T @scala.util.continuations.cpsParam[Unit,Unit]
+
+scala> class Res(name: String) {
+     |   println("init: " + name)
+     |   def dispose = { println("fini: " + name) }
+     |   def work = { println("work: " + name) }
+     | }
+defined class Res
+
+scala> reset {
+     |   val res = managed(new Res("X"))
+     |   res.work
+     | }
+init: X
+work: X
+fini: X
+
+scala> 
+---------------------------------------------------------------------

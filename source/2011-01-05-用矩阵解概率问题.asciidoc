@@ -1,0 +1,165 @@
+:linkcss:
+:mathjax:
+:tag1: math
+
+用矩阵解概率问题
+================
+
+在做topcoder的时候, 遇到了一个 http://www.topcoder.com/stat?c=problem_statement&pm=10744[很有趣的问题] 
+
+问题描述是这样的:
+有n种不同的糖果,分成n堆,每种一堆,每堆C个. 从这n*C个糖果中随机选出两个交换, 交换S次后, 每堆糖果中各种糖果出现的概率是多少. 假设每种糖果的价值是 latexmath:[$ Value_{i} $] , 那么每堆糖果中任意一个糖果的价值期望是多少.
+
+我们使用矩阵P描述每种糖果在每堆中的概率, 那么P[i][j]表示第i种糖果在第j堆中的出现概率. 开始的时候第i堆只有第i种糖果, 表示成矩阵就是
+
+latexmath:[$ \begin{bmatrix} 1 & & & & & & \\ & 1 & & & & & \\ & & 1 & & & & \\ & & & \ddots & & & \\ & & & & 1 & & \\ & & & & & 1 & \\ & & & & & & 1 \end{bmatrix} $]
+
+每个交换操作都使用乘以相应的变换矩阵表示, 比如交换第i堆与第j堆中的一个糖果, 就是把第i堆的 latexmath:[$ 1 \over C $] 移动到第j堆, 反过来第j堆的 latexmath:[$ 1 \over C $] 移动到第i堆, 所以变换矩阵如下:
+
+latexmath:[$
+\begin{bmatrix}
+ 1 & &i & &j & & \\
+ &\ddots & & & & & \\
+i & &C - 1 \over C &\cdots &1 \over C & & \\
+ & &\vdots &\ddots &\vdots & & \\
+j & &1 \over C &\cdots &C - 1 \over C & & \\
+ & & & & &\ddots & \\
+ & & & & & &1
+\end{bmatrix}
+$]
+
+然后找到所有变换矩阵(一共 latexmath:[$ n*(n-1) \over 2 $] 个), 并且乘以他们被使用的概率( latexmath:[$C*C \over nC*(nC-1)/2$] ), 累加起来
+
+latexmath:[$\sum_{0 <= i < j < n}^{ }
+\begin{bmatrix}
+ 1 & &i & &j & & \\
+ &\ddots & & & & & \\
+i & &C - 1 \over C &\cdots &1 \over C & & \\
+ & &\vdots &\ddots &\vdots & & \\
+j & &1 \over C &\cdots &C - 1 \over C & & \\
+ & & & & &\ddots & \\
+ & & & & & &1
+\end{bmatrix} * {C*C \over nC*(nC-1)/2}
+\Rightarrow A
+$]
+
+最后加上交换的两个糖果来自同一堆的变换矩阵乘以来自同一堆的概率(latexmath:[$C-1 \over n*C - 1$])
+
+latexmath:[$\begin{bmatrix}
+1 & & & & & & \\
+ &1 & & & & & \\
+ & &1 & & & & \\
+ & & &\ddots & & & \\
+ & & & &1 & & \\
+ & & & & &1 & \\
+ & & & & & &1
+\end{bmatrix} * {C-1 \over n*C - 1}
+\Rightarrow B$]
+
+这样就得到了一次交换的变换矩阵.
+因为需要做S次交换, 所以要计算这个变换矩阵的S次方, 这样就得到了变换结果的概率矩阵.
+
+latexmath:[$ {(A + B)}^{S} \Rightarrow P$]
+
+最后价值期望就是乘以价值矩阵
+
+latexmath:[$
+\begin{bmatrix}
+Value_{1} & \cdots  & Value_{n}
+\end{bmatrix}
+* P$]
+
+[source,c]
+-----
+class CandyBox {
+public:
+	vector <double> expectedScore(int, vector <int>, int);
+};
+
+int n;
+#define N 50
+double m1[N][N];
+double m2[N][N];
+double m3[N][N];
+
+void matrix_times(double result[N][N], double c) {
+	for (int i = 0; i < n; ++i)
+		for (int j = 0; j < n; ++j)
+			result[i][j] *= c;
+}
+
+void matrix_plus(double result[N][N], double m[N][N]) {
+	for (int i = 0; i < n; ++i)
+		for (int j = 0; j < n; ++j)
+			result[i][j] += m[i][j];
+}
+
+void matrix_mul(double result[N][N], double m1[N][N], double m2[N][N]) {
+	for (int i = 0; i < n; ++i)
+		for (int j = 0; j < n; ++j) {
+			result[i][j] = 0;
+			for (int k = 0; k < n; ++k)
+				result[i][j] += m1[i][k] * m2[k][j];
+		}
+}
+
+vector <double> CandyBox::expectedScore(int C, vector <int> score, int S) {
+	n = score.size();
+	for (int i = 0; i < n; ++i)
+		for (int j = 0; j < n; ++j)
+			m1[i][j] = 0;
+
+	for (int i = 0; i < n; ++i)
+		for (int j = 0; j < n; ++j)
+			m3[i][j] = i == j ? 1 : 0;
+
+	for (int i = 0; i < n; ++i) {
+		for (int j = i + 1; j < n; ++j) {
+			for (int x = 0; x < n; ++x) {
+				for (int y = 0; y < n; ++y)
+					if (x == i && y == i)
+						m2[x][y] = 1.0 - 1.0/C;
+					else if (x == i && y == j)
+						m2[x][y] = 1.0/C;
+					else if (x == j && y == i)
+						m2[x][y] = 1.0/C;
+					else if (x == j && y == j)
+						m2[x][y] = 1.0 - 1.0/C;
+					else if (x == y)
+						m2[x][y] = 1;
+					else
+						m2[x][y] = 0;
+			}
+			matrix_plus(m1, m2);
+		}
+	}
+	matrix_times(m1, 2.0*C*C/((n*C)*(n*C - 1)));
+	matrix_times(m3, ((double)(C-1))/(n*C - 1)), 
+	matrix_plus(m1, m3);
+
+	for (int i = 0; i < n; ++i)
+		for (int j = 0; j < n; ++j)
+			m3[i][j] = i == j ? 1 : 0;
+
+	for (int i = 0; i < S; ++i) {
+		matrix_mul(m2, m3, m1);
+		memcpy(m3, m2, sizeof(m2));
+	}
+
+	for (int j = 0; j < n; ++j)
+		m2[0][j] = score[j];
+	for (int i = 1; i < n; ++i)
+		for (int j = 0; j < n; ++j)
+			m2[i][j] = 0;
+
+	matrix_mul(m1, m2, m3);
+
+	return vector<double>(m1[0], m1[0] + n);
+}
+-----
+
+后记： 其实算法还有很多可以优化的地方
+
+ 1. 一次变换的矩阵可以直接用公式算出来，是一个对角阵，主对角线上的元素相同，其他元素相同，所以只需要用一个pair<double, double>就可以存下来了
+ 2. 求一个对角阵的S次方，结果还是一个对角阵。
+ 3. 总时间复杂度可以优化到O(S*n)，空间复杂度O(1)

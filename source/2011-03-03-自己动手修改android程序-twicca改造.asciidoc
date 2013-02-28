@@ -1,0 +1,128 @@
+:tag1: Android
+:tag2: Hack
+
+自己动手修改Android程序 - twicca改造
+====================================
+
+===========================
+仅以此文悼念为了使用twicca上twitter与GFW搏斗浪费掉的20多个小时
+===========================
+
+== apktool ==
+首先介绍一个软件 link:http://code.google.com/p/android-apktool/[apktool] , 利用它可以反汇编Android的二进制软件包. 利用apktool反汇编Android程序的结果与程序源代码目录结构相同, 唯一区别是包含Java代码的src目录变成了包含Dalvik汇编码的smali目录.
+---------------------------------
+twicca.org/
+|-- AndroidManifest.xml
+|-- apktool.yml
+|-- res
+|   |-- anim
+|   |-- color
+|   |-- drawable
+|   |-- layout
+|   |-- values
+|   `-- xml
+`-- smali
+    `-- [dalvik assembler code]
+---------------------------------
+修改代码后使用apktool可以重新编译修改过的反汇编结果, 生成新的Android程序.
+
+== Dalvik ==
+smali目录里面是Dalvik虚拟机的汇编码.  link:http://en.wikipedia.org/wiki/Dalvik_(software)[Dalvik] 是android使用的Java虚拟机, 类似sun的JVM, 使用与Java bytecode类似的指令集. 与Java bytecode最大的区别是Dalvik是寄存器机, Java bytecode是堆栈机. Dalvik的效率更高, 因为现有大部分硬件体系都是寄存器机, Dalvik能够更加充分得利用寄存器资源; 而且Dalvik的汇编代码也更加容易理解, 寄存器变量比堆栈变量更加清晰明了.
+
+比如说这样一段代码
+[source,java]
+---------------------------------------------------------------------
+public void HelloWorld(String p1, String p2) {
+    System.out.println(p1 + p2);
+}
+---------------------------------------------------------------------
+
+编译成JVM和Dalvik分别是
+
+.JVM byte code
+---------------------------------------------------------------------
+public void HelloWorld(java.lang.String, java.lang.String);
+  Signature: (Ljava/lang/String;Ljava/lang/String;)V
+  Code:
+   0:   getstatic       #36; //Field java/lang/System.out:Ljava/io/PrintStream;
+   3:   new     #37; //class java/lang/StringBuilder
+   6:   dup
+   7:   invokespecial   #38; //Method java/lang/StringBuilder."<init>":()V
+   10:  aload_1
+   11:  invokevirtual   #39; //Method java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;
+   14:  aload_2
+   15:  invokevirtual   #39; //Method java/lang/StringBuilder.append:(Ljava/lang/String;)Ljava/lang/StringBuilder;
+   18:  invokevirtual   #40; //Method java/lang/StringBuilder.toString:()Ljava/lang/String;
+   21:  invokevirtual   #41; //Method java/io/PrintStream.println:(Ljava/lang/String;)V
+   24:  return
+---------------------------------------------------------------------
+
+.Dalvik
+---------------------------------------------------------------------
+.method public HelloWorld(Ljava/lang/String;Ljava/lang/String;)V
+    sget-object v0, Ljava/lang/System;->out:Ljava/io/PrintStream;
+    new-instance v1, Ljava/lang/StringBuilder;
+    invoke-direct {v1}, Ljava/lang/StringBuilder;-><init>()V
+    invoke-virtual {v1, p1}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+    move-result-object v1
+    invoke-virtual {v1, p2}, Ljava/lang/StringBuilder;->append(Ljava/lang/String;)Ljava/lang/StringBuilder;
+    move-result-object v1
+    invoke-virtual {v1}, Ljava/lang/StringBuilder;->toString()Ljava/lang/String;
+    move-result-object v1
+    invoke-virtual {v0, v1}, Ljava/io/PrintStream;->println(Ljava/lang/String;)V
+    return-void
+.end method
+---------------------------------------------------------------------
+很明显, 下面Dalvik的汇编代码容易理解, 即使没有接触过Dalvik也能轻松理解这段代码. 上面的JVM bytecode就不是那么容易理解了, 函数调用的参数与结果都隐含在堆栈中, 必须分析堆栈才能知道程序意义.
+
+== 调试 ==
+使用apktool的-d参数解开/打包的程序会拥有调试信息, 在Android上运行的时候可以通过JPDA调试, 在手机上使用Dev Tools打开调试, 然后在PC上用Android SDK里面的ddms连上去, 启动程序, 用任意一个JPDA客户端连上去就可以调试了. apktool的作者测试, Eclipse无法设置断点, 其他功能正常, 笔者使用jswat所有功能都正常. apktool作者的调试教程在 link:http://code.google.com/p/android-apktool/wiki/SmaliDebugging[这里] 
+
+有了apktool, 并且熟悉了Dalvik bytecode, 我们就可以对所有的Android程序动手术了.
+
+== twicca的防篡改机制 ==
+twicca这个程序会在运行的时候把自己的signature发给服务器验证本身的没有被篡改, 改过程序的signature肯定会变化, 无法通过服务器验证, 不过得到自己signature的程序也是程序写的, 我们把这段改掉, 直接返回正确的signature就可以了. 得到一个程序signature的方法有很多种, 通过调试器在原程序得到signature的地方设置断点, 直接从程序内存中取出来; 或者写一个程序在手机中运行计算原程序的signature. 这里笔者使用的是另外一个黑客研究出来的方法, 可以 link:http://androidcracking.blogspot.com/2010/12/getting-apk-signature-outside-of.html[直接在PC上获得程序的signature] . 获取到程序正确的signature后, 要想办法替换到程序中得到修改过的signature.
+
+下面这段代码是twicca获取自己signature的代码
+[source,java]
+---------------------------------------------------------------------
+    const-string v1, "jp.r246.twicca"
+    const/16 v2, 0x40
+    invoke-virtual {v0, v1, v2}, Landroid/content/pm/PackageManager;->getPackageInfo(Ljava/lang/String;I)Landroid/content/pm/PackageInfo;
+    move-result-object v0
+    iget-object v0, v0, Landroid/content/pm/PackageInfo;->signatures:[Landroid/content/pm/Signature;
+    const/4 v2, 0x0
+    aget-object v0, v0, v2
+    invoke-virtual {v0}, Landroid/content/pm/Signature;->toCharsString()Ljava/lang/String;
+    move-result-object v0
+---------------------------------------------------------------------
+翻译成Java就是
+[source,java]
+---------------------------------------------------------------------
+    PackageManager v0a = ...;
+    PackageInfo v0b = v0a.getPackageInfo("jp.r246.twicca", 0x40);
+    Signature[] v0c = v0b.signatures;
+    Signature v0d = v0c[0];
+    String v0e = v0d.toCharsString();
+---------------------------------------------------------------------
+我们只需要把最后的结果改成正确的signature, 而不是从PackageInfo中得到的signature, 所以只需要改最后一句, 直接给v0e赋值就可以了, 修改后就是这样(注意只有最后一句有变化).
+[source,java]
+---------------------------------------------------------------------
+    const-string v1, "jp.r246.twicca"
+    const/16 v2, 0x40
+    invoke-virtual {v0, v1, v2}, Landroid/content/pm/PackageManager;->getPackageInfo(Ljava/lang/String;I)Landroid/content/pm/PackageInfo;
+    move-result-object v0
+    iget-object v0, v0, Landroid/content/pm/PackageInfo;->signatures:[Landroid/content/pm/Signature;
+    const/4 v2, 0x0
+    aget-object v0, v0, v2
+    invoke-virtual {v0}, Landroid/content/pm/Signature;->toCharsString()Ljava/lang/String;
+    const-string v0, "30820269308201d2......27a2ee"
+---------------------------------------------------------------------
+这样的话无论我们如何篡改程序, 它在自检验的时候都会得到我们硬编码到这段代码中的signature, 这样就能跳过它的自检验了.
+
+下面就可以充分发挥想象力随意修改程序了, 比如把所有指向twitter.com的请求改成指向某代理的请求...
+
+这是笔者修改的用来翻墙的twicca 0.8.24c的patch
+
+link:http://blog.kghost.info/wp-content/uploads/2011/03/twicca.diff.gz[twicca.diff] 
+

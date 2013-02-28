@@ -1,0 +1,88 @@
+:tag1: linux
+
+使用fakeroot模拟root权限执行程序
+================================
+
+==========================
+最近从 link:http://tianchunbinghe.blog.163.com/[田春] 那里借来一本好书 link:http://books.google.com/books?id=Jzv3L2j6oqsC[ハッカー秘伝のテクニック100選] 里面各种奇技淫巧，其中有一章讲解了fakeroot的实现，比我自己总结清晰很多，就拿来翻译一下试试。
+==========================
+
+== Hack #57: 使用fakeroot模拟root权限执行程序 ==
+
+=== fakeroot是什么 ===
+例如Debian在生成package的时候，编译完之后，不能立刻在当前环境执行make install，需要执行make install DESTDIR=$(pwd)/debian/tmp把生成的文件安装到build目录的里面$(pwd)/debian/tmp。然后使用那个目录里面的全部内容生成Debian包（实际上包里面还会包含control和maintainer script等）。
+这个包里面的文件所有者必须是root，所以需要以root来执行打包命令。但是应该避免在制作Debian包的时候使用root权限。
+为了解决这个矛盾，fakeroot被开发出来了。在fakeroot环境中，操作文件就像使用root操作文件一样。但是，实际上系统中文件的权限还是原来的权限。
+
+[source,bash]
+-----
+$ ls
+foo
+$ ls -l
+total 0
+-rw-r--r-- 1 kghost staff 0 Feb 11 14:17 foo
+$ fakeroot
+# id
+uid=0(root) gid=0(root) groups=0(root),50(staff),100(users)
+# ls -l
+total 0
+-rw-r--r-- 1 root root 0 Feb 11 14:17 foo
+# touch bar
+# ls -l
+-rw-r--r-- 1 root root 0 Feb 11 14:17 bar
+-rw-r--r-- 1 root root 0 Feb 11 14:17 foo
+# chown www-data:www-data foo
+# ls -l
+total 0
+-rw-r--r-- 1 root     root     0 Feb 11 14:17 bar
+-rw-r--r-- 1 www-data www-data 0 Feb 11 14:17 foo
+# exit
+$ ls -l
+total 0
+-rw-r--r-- 1 kghost staff 0 Feb 11 14:17 bar
+-rw-r--r-- 1 kghost staff 0 Feb 11 14:17 foo
+-----
+像这样执行fakeroot后会在fakeroot环境中启动一个shell。这个shell中就像拥有root权限一样。执行id(1)命令会提示为root，并且文件的所有者也会变成root。新生成的文件所有者也是root，还可以把现有文件的所有者改成其他人。
+但是实际上变更的只反应在fakeroot环境内部。退出fakeroot环境后就能看到实际上的文件属性。
+在制作Debian包的时候，需要使用root权限来执行某些命令。本来是应该使用sudo来运行这些命令的，但是通常情况下是使用fakeroot模拟root运行。
+
+=== fakeroot的实现 ===
+fakeroot仅仅是简单的shell script。简单来说fakeroot做下面的事情。
+ * 启动faked，获取FAKEROOTKEY
+ * 设置环境变量FAKEROOTKEY，LD_LIBRARY_PATH，LD_PRELOAD。执行命令（默认是shell）
+
+faked是管理虚拟的文件所有者，文件权限信息的守护进程。
+在fakeroot中执行的命令会加载由LD_LIBRARY_PATH，LD_PRELOAD环境变量指定的一个动态链接库（/usr/lib/libfakeroot/libfakeroot-sysv.so）
+[source,bash]
+-----
+LD_LIBRARY_PATH=/usr/lib/libfakeroot LD_PRELOAD=libfakeroot-sysv.so
+-----
+libfakeroot-sysv.so导出了以下函数
+
+.test
+[format="csv",width="60%",cols="4"]
+[frame="topbot",grid="none"]
+|====
+getuid(),geteuid(),getguid(),getegid(),
+mknod(),
+chown(),fchown(),lchown(),
+chmod(),fchmod(),
+mkdir(),
+lstat(),fstat(),stat(),
+unlink(),remove(),rmdir(),rename(),
+|====
+
+这些函数会使用FAKEROOTKEY与faked通讯，返回虚拟的所有者与权限信息。
+
+=== /usr/lib/libfakeroot-sysv.so ===
+与faked通讯的库文件是/usr/lib/libfakeroot/libfakeroot-sysv.so，但是/usr/lib/libfakeroot-sysv.so也是存在的。这个文件是在fakeroot中运行suid程序所必须的。
+fakeroot中会设定LD_LIBRARY_PATH环境变量。设定LD_LIBRARY_PATH后LD_PRELOAD就不需要是完整路径了。但是如果LD_PRELOAD不使用完整路径，suid的程序会忽略LD_LIBRARY_PATH而直接在/lib与/usr/lib中寻找LD_PRELOAD指定的库文件。如果LD_PRELOAD指定的文件没有找到这个suid的程序就会启动失败。所以会存在/usr/lib/libfakeroot-sysv.so这样一个suid的dummy库，在运行suid程序的时候通过LD_PRELOAD加载这个库，就跟没有加载任何东西一样，正常执行。
+ * 普通的程序
+        使用LD_LIBRARY_PATH=/usr/lib/libfakeroot LD_PRELOAD=libfakeroot-sysv.so，通过preload加载/usr/lib/libfakeroot/libfakeroot-sysv.so的与faked通讯
+ * suid的程序
+        无视LD_LIBRARY_PATH， 使用LD_PRELOAD=libfakeroot-sysv.so，通过preload加载/usr/lib/libfakeroot-sysv.so，因为这是一个dummy库，就与这个库不存在一样，程序正常执行。
+
+=== 总结 ===
+例如Debian生成package这样，在必须使用root的时候，使用fakeroot模拟root权限。fakeroot使用libfakeroot-sysv.so库文件中的函数与faked通讯管理文件权限信息。
+
+-- Fumitoshi Ukai
