@@ -1,5 +1,5 @@
-:tag1: Android
-:tag2: Hack
+:tag1: android
+:tag2: hack
 
 自己动手修改Android程序 - twicca改造
 ====================================

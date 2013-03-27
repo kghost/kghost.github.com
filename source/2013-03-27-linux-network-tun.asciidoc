@@ -1,6 +1,6 @@
 :tag1: linux
 :tag2: networking
-:tag2: cloud networking
+:tag3: cloud networking
 
 网络虚拟化技术（二）: TUN/TAP MACVLAN MACVTAP
 =============================================
@@ -112,6 +112,7 @@ MACVLAN 会根据收到包的目的 MAC 地址判断这个包需要交给哪个�
 
 ["ditaa",options="no-separation,no-shadow"]
 --------------------------------
+                                        |
                          host namespace | virtual namespace x
                    +-------------+      | +-------------+
                    |Network Stack|      | |Network Stack|
@@ -124,6 +125,7 @@ MACVLAN 会根据收到包的目的 MAC 地址判断这个包需要交给哪个�
 -------+ eth0 +----+if dst mac is+----------+ macvlan +
        +------+    |             |      |   +---------+
                    +-------------+      |
+                                        |
 --------------------------------
 
 由于 macvlan 与 eth0 处于不同的 namespace，拥有不同的 network stack，这样使用可以不需要建立 bridge 在 virtual namespace 里面使用网络。

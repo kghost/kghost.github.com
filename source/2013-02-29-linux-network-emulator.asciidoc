@@ -1,5 +1,6 @@
 :tag1: linux
 :tag2: networking
+:tag3: cloud networking
 
 网络虚拟化技术（一）: Linux网络虚拟化
 =====================================
