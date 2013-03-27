@@ -1,0 +1,9 @@
+#! /bin/sh
+
+find source/ -type f -name '*.asciidoc' | while read i
+do
+	name="`basename $i .asciidoc`"
+	tmp="`mktemp`"
+	cp "$i" "$tmp"
+	asciidoc -v -b blogger -o "_posts/$name.html" "$tmp"
+done
