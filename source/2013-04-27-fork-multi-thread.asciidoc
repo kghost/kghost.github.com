@@ -1,0 +1,248 @@
+:tag1: linux
+:tag2: multithreading
+:keywords: fork, multi-threaded, linux
+
+多线程程序中使用 Fork/Exec
+==========================
+
+什么是 fork
+-----------
+
+fork 是 linux 用来创建新进程的唯一方法，虽然我们在日常使用中，不会直接调用 fork，但是经常会间接使用 fork，所有编程语言中，例如：
+
+ * python 的 os.spawn*
+ * java 的 Process 类
+
+这些都是使用 fork 创建新进程，然后在新进程中调用 exec 系列函数。下面介绍一下 fork 的使用：
+
+-----------------
+pid_t fork(void);
+-----------------
+
+fork 会创建一个新进程，新创建的子进程继承父的所有属性，除了：
+
+ * 进程id：系统会分配一个新的进程 ID 给 fork 出来的子进程
+ * 除了调用 fork 的线程，其他线程强制终止
+
+这里使用一段代码介绍如何使用 fork/exec
+
+[source,c]
+---------------------------------------------------------------------
+pid_t pid = fork();
+if (pid < 0) {
+  // error process
+} else if (pid > 0) {
+  // parent
+  waitpid(pid, ...);
+} else {
+  // child
+
+  execv(prog, ...);
+}
+---------------------------------------------------------------------
+
+fork/exec 的用法很简单，下面介绍一下使用的时候需要注意的问题
+
+关闭文件
+--------
+
+由于 fork 会继承父进程的所有打开的文件，而且 exec 函数不会关闭这些文件，所以需要在运行 exec 前确保这些文件被关闭，下面两种方法
+
+手动关闭所有文件
+~~~~~~~~~~~~~~~~
+
+在调用 exec 前，遍历并关闭所有文件，如果调用 exec 前没有关闭这些文件，子进程可以任意读写这些文件，可能会引起安全问题。例如：
+
+ * login 程序执行 shell 时没有关闭 /etc/shadow 文件
+ * webserver 调用 CGI 时没有关闭与客户端之间的 socket 文件
+
+所以，必须在调用 exec 之前关闭所有子进程不需要使用的文件描述符。例如 ptyhon 的 subprocess.Popen 类：
+
+[source,python]
+---------------------------------------------------------------------
+class subprocess.Popen(args, bufsize=0, executable=None, stdin=None, stdout=None, stderr=None, preexec_fn=None, close_fds=False, shell=False, cwd=None, env=None, universal_newlines=False, startupinfo=None, creationflags=0)
+---------------------------------------------------------------------
+
+提供了一个 close_fds 参数，如果开启这个参数，python 会遍历所有文件描述符，从 0 到 SC_MAX_FD，调用 close 关闭这些文件。
+
+[source,python]
+---------------------------------------------------------------------
+MAXFD = os.sysconf("SC_OPEN_MAX")
+def _close_fds(self, but):
+    if hasattr(os, 'closerange'):
+        os.closerange(3, but)
+        os.closerange(but + 1, MAXFD)
+    else:
+        for i in xrange(3, MAXFD):
+            if i == but:
+                continue
+            try:
+                os.close(i)
+            except:
+                pass
+---------------------------------------------------------------------
+
+如果在一些特定环境下，ulimit 的最大文件描述符数量设置得非常大，并且程序又需要频繁创建子进程，那么关闭每次都需要关闭大量文件描述符会浪费掉大量 CPU 资源，在优化程序的时候特别要注意这点。
+
+同时 Java 也提供了，process 类，但是 Java 中做了一些优化，通过遍历 /proc/self/fd 拿到打开的文件，然后仅仅关闭这些文件，下面是 Java 中 Process 类的 jni 代码：
+
+[source,c]
+---------------------------------------------------------------------
+if ((dp = opendir(FD_DIR)) == NULL)
+    return 0;
+
+while ((dirp = readdir64(dp)) != NULL) {
+    int fd;
+    if (isAsciiDigit(dirp->d_name[0]) &&
+        (fd = strtol(dirp->d_name, NULL, 10)) >= from_fd + 2)
+        restartableClose(fd);
+}
+
+closedir(dp);
+---------------------------------------------------------------------
+
+虽然说 Java 的版本比 Python 快很多，但是仍然需要额外的操作，下面介绍 Linux 下特有（非 POSIX 接口）的方法。
+
+使用 close_on_exec 关闭文件
+~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+close on exec，从这个东西的名字就可以看出，可以在调用 exec 的时候自动关闭这个文件，我们只需要给文件描述符设置这个 flag
+
+[source,c]
+---------------------------------------------------------------------
+fcntl(fd, F_SETFD, FD_CLOEXEC);
+---------------------------------------------------------------------
+
+那么在执行到 exec 的时候，这个 fd 就会被自动关闭。
+
+[note]
+---------------------------------------------
+File descriptor flags 与 File status flags
+
+为了搞清楚这两个东西的关系，需要理解 File descriptor 与 File description
+
+ * File descriptor：文件描述符，通过 dup 可以复制文件描述符，得到两个不同的文件描述符
+ * File description：文件对象，通过 dup 得到的两个文件描述符指向同一个文件对象
+
+ * File descriptor flags：File descriptor 对应的 flag
+ * File status flags：File description 对应的 flag
+
+所以 dup 得到的两个不同的文件描述符拥有不同的 File descriptor flags，但是却共享 File status flags
+
+下面是几个典型的 flags:
+
+File descriptor flags
+ * CLOSEXEC
+
+File status flags
+ * O_NONBLOCK
+ * O_DIRECT
+---------------------------------------------
+
+我们可以为每个 fd 设置 close-on-exec，那么在 exec 的时候文件就会被自动关掉。但是在多线程中就不是那么简单了，考虑下面这个场景：
+
+["ditaa"]
+--------------------------------
+Thread1   Thread2
+   |         |
++--+--+      |
+|open |      |
++--+--+      |
+   |      +--+--+
+   X      |fork |
+          +--+--+
+   :         |
+   |         |
++--+--+      |
+:fcntl|   +--+--+
++--+--+   |exec |
+   :      +--+--+
+   |         |
+--------------------------------
+
+由于线程1在调用 open 后，未来得及调用 fcntl设置 close-on-exec，线程2调用了 fork，子进程中线程1会被强行终止，无法设置 close-on-exec，虽然父进程中线程1仍然能够正确执行，但是子进程与父进程的 fd 不共享 File descriptor flags，所以子进程的 fd 没有 close-on-exec，在调用 exec 的时候会泄漏 fd。所以，必须保证 open 与设置 close-on-exec 为原子操作，为此，linux 修改了所有会新建 fd 的 API：
+
+ * open
+ * opendir
+ * socket
+ * accept
+ * pipe2
+ * dup3
+
+在某些操作系统中，由于系统没有提供上述 API，无法保证打开文件描述符与设置 close-on-exec 的原子性，则需要通过额外的锁来控制：
+
+["ditaa"]
+--------------------------------
+Thread1   Thread2
+   |         |
++--+--+      |
+|lock |      |
++--+--+      |
+   |         |
++--+--+      |
+|open |      |
++--+--+      |
+   |         |
++--+--+      |
+|fcntl|      |
++--+--+      |
+   |         |
++--+--+      |
+|ulock|      |
++--+--+      |
+   |         |
+          +--+--+
+          |lock |
+          +--+--+
+             |
+          +--+--+
+          |fork |
+          +--+--+
+             |
+          +--+--+
+          |ulock|
+          +--+--+
+             |
+          +--+--+
+          |exec |
+          +--+--+
+             |
+--------------------------------
+
+golang 为了保证移植性，使用的就是此方法。
+
+
+死锁
+----
+
+考虑下面这个场景：
+
+["ditaa"]
+--------------------------------
+Thread1   Thread2
+   |         |
++--+--+      |
+|lock |      |
++--+--+      |
+   |         |
++--+--+      |
+|work |   +--+--+
++--+--+   |fork |
+   |      +--+--+
+   X         |
+          +--+--+
+   :      :lock |
+   |      +--+--+
++--+--+      :
+:ulock|      |
++--+--+   +--+--+
+   :      :exec |
+   |      +--+--+
+   |         :
+   |         |
+--------------------------------
+
+由于持有锁的线程1被强行终止了，子进程中将永远无法获取到锁，于是程序死锁。解决这个问题的方法也非常简单，在 fork 之后，exec 之前不要使用任何锁。说来简单，但是实际上陷阱非常多，因为 libc 里面有大量函数使用了锁，例如最常用的 malloc/free 函数中就有锁。如果在进程1申请内存的时候进程2调用了 fork，并且在 exec 之前尝试申请内存就会产生死锁。POSIX 标准维护了一个函数列表 Async-signal-safe functions，需要确保程序在 exec 之前不会调用任何此列表之外的任何函数，exec 后会重置所有进程状态，之前线程获取的锁会直接被销毁。
+
+但是有时程序的执行并不是可控的，比如 Java 程序随时可能会执行 gc 代码，如果在 exec 前启动了 gc 代码可能会导致死锁，所以必须做特殊处理避免此类情况出现。反观 python，本文中提到的这些问题 python 完全没有考虑到，python 提供了原生的 fork 与 exec 调用，fork 与 exec 之间很可能会产生 gc，所以如果想给 python 添加多线程支持，就必须伤筋动骨得大改了。
+
