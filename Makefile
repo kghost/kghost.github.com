@@ -4,11 +4,12 @@ SOURCE=$(wildcard source/*.asciidoc)
 
 all: _sites
 
-_posts:
+_posts/stamp:
 	mkdir -p _posts
+	touch _posts/stamp
 
-_posts/%.html: source/%.asciidoc _posts
-	TMP="`mktemp`" ; cp "$<" "$${TMP}" && asciidoc -b blogger -o "$@" "$${TMP}"
+_posts/%.html: source/%.asciidoc _posts/stamp
+	asciidoc -b blogger -o "$@" "$<"
 
 _sites: $(patsubst source/%.asciidoc,_posts/%.html,$(SOURCE))
 	jekyll --no-server --no-auto
