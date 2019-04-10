@@ -115,7 +115,7 @@ fcntl(fd, F_SETFD, FD_CLOEXEC);
 
 那么在执行到 exec 的时候，这个 fd 就会被自动关闭。
 
-[note]
+[NOTE]
 ---------------------------------------------
 File descriptor flags 与 File status flags
 

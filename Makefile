@@ -12,10 +12,10 @@ _posts/%.html: source/%.asciidoc _posts/stamp
 	asciidoc -b blogger -o "$@" "$<"
 
 _sites: $(patsubst source/%.asciidoc,_posts/%.html,$(SOURCE))
-	jekyll --no-server --no-auto
+	jekyll build
 
 _sites_safe: $(patsubst source/%.asciidoc,_posts/%.html,$(SOURCE))
-	jekyll --no-server --no-auto --safe
+	jekyll --safe build
 
 publish: _sites_safe
 	rsync --delete -ae ssh _site/ kghost.info:/srv/www/jekyll
